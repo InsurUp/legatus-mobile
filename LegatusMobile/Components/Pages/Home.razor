@@ -1,0 +1,300 @@
+﻿@page "/"
+@implements IDisposable
+@using ZXing
+@using ZXing.Mobile
+
+<div class="main-container">
+    <div class="content-wrapper">
+        @if (_isLoading)
+        {
+            <div class="loading-container">
+                <MudProgressCircular Color="Color.Primary" Size="Size.Large" Indeterminate="true" />
+            </div>
+        }
+        else
+        {
+            <MudStack Spacing="4" Class="pa-4">
+                <MudStack AlignItems="AlignItems.Center" Spacing="2">
+                    <MudAvatar Color="Color.Primary" Style="width: 64px; height: 64px;">
+                        <MudIcon Icon="@Icons.Material.Filled.Security" Size="Size.Large" />
+                    </MudAvatar>
+                    <MudText Typo="Typo.h5" Color="Color.Primary" Align="Align.Center">
+                        Legatus Mobile
+                    </MudText>
+                </MudStack>
+
+                @if (string.IsNullOrEmpty(_currentToken))
+                {
+                    <MudCard Elevation="0">
+                        <MudCardContent>
+                            <MudTextField @bind-Value="_newToken"
+                                          Label="Aktivasyon Kodu"
+                                          Variant="Variant.Outlined"
+                                          Adornment="Adornment.End"
+                                          AdornmentIcon="@Icons.Material.Filled.QrCodeScanner"
+                                          OnAdornmentClick="@ScanQRCodeAsync"
+                                          Class="mt-2" />
+
+                            @if (!string.IsNullOrEmpty(_errorMessage))
+                            {
+                                <MudAlert Severity="Severity.Error"
+                                          Variant="Variant.Filled"
+                                          Class="mt-2">
+                                    @_errorMessage
+                                </MudAlert>
+                            }
+
+                            <MudButton Color="Color.Primary"
+                                       Variant="Variant.Filled"
+                                       FullWidth="true"
+                                       OnClick="SaveTokenAsync"
+                                       StartIcon="@Icons.Material.Filled.PlayArrow"
+                                       Class="mt-4">
+                                Servisi Başlat
+                            </MudButton>
+                        </MudCardContent>
+                    </MudCard>
+                }
+                else
+                {
+                    <MudAlert Severity="@(_isListening ? Severity.Success : Severity.Warning)"
+                              Icon="@(_isListening ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Warning)"
+                              Dense="true">
+                        @(_isListening ? "SMS servisi aktif" : "SMS servisi duraklatıldı")
+                    </MudAlert>
+
+                    @if (!string.IsNullOrEmpty(_deliveryError))
+                    {
+                        <MudAlert Severity="Severity.Error" Variant="Variant.Filled" Dense="true">
+                            @_deliveryError
+                        </MudAlert>
+                    }
+
+                    <MudButtonGroup Variant="Variant.Outlined" FullWidth="true">
+                        @if (_isListening)
+                        {
+                            <MudButton OnClick="StopListeningAsync"
+                                       Color="Color.Warning"
+                                       StartIcon="@Icons.Material.Filled.Pause">
+                                Duraklat
+                            </MudButton>
+                        }
+                        else
+                        {
+                            <MudButton OnClick="StartListeningAsync"
+                                       Color="Color.Success"
+                                       StartIcon="@Icons.Material.Filled.PlayArrow">
+                                Başlat
+                            </MudButton>
+                        }
+                        <MudButton OnClick="RemoveTokenAsync"
+                                   Color="Color.Error"
+                                   StartIcon="@Icons.Material.Filled.Delete">
+                            Sıfırla
+                        </MudButton>
+                    </MudButtonGroup>
+                }
+
+                <MudDivider />
+
+                <MudCard Elevation="0">
+                    <MudCardContent>
+                        <MudTimeline TimelinePosition="TimelinePosition.Left" TimelineAlign="TimelineAlign.Start">
+                            <MudTimelineItem Color="Color.Primary" Size="Size.Small">
+                                <MudText Typo="Typo.subtitle1" Color="Color.Primary">Güvenli İletişim</MudText>
+                                <MudText Typo="Typo.body2">
+                                    Mobil uygulamayı açık tuttuğunuz sürece sigorta şirketlerinin SMS'leri okunmaya devam edecektir.
+                                </MudText>
+                            </MudTimelineItem>
+
+                            <MudTimelineItem Color="Color.Success" Size="Size.Small">
+                                <MudText Typo="Typo.subtitle1" Color="Color.Success">Otomatik SMS Takibi</MudText>
+                                <MudText Typo="Typo.body2">
+                                    Yanlızca sigorta şirketlerinden gelen SMS'ler otomatik olarak algılanır ve işlenir.
+                                </MudText>
+                            </MudTimelineItem>
+
+                            <MudTimelineItem Color="Color.Info" Size="Size.Small">
+                                <MudText Typo="Typo.subtitle1" Color="Color.Info">Kesintisiz Hizmet</MudText>
+                                <MudText Typo="Typo.body2">
+                                    Arka planda çalışarak kesintisiz SMS takibi sağlar.
+                                </MudText>
+                            </MudTimelineItem>
+                        </MudTimeline>
+                    </MudCardContent>
+                </MudCard>
+
+                <MudStack Spacing="2" AlignItems="AlignItems.Center" Class="mt-4">
+                    <MudText Typo="Typo.caption" Color="Color.Secondary" Align="Align.Center" Style="font-size: 11px;">
+                        En verimli kullanım için uygulamanın arka planda sürekli açık kalması gerekmektedir.
+                    </MudText>
+                </MudStack>
+            </MudStack>
+        }
+    </div>
+</div>
+
+@code {
+    private string _currentToken;
+    private string _newToken;
+    private string _errorMessage;
+    private string? _deliveryError;
+    private bool _isLoading = true;
+    private bool _isListening = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        SmsProcessingService.OnDeliveryFailed += HandleDeliveryFailed;
+
+        try
+        {
+            _currentToken = await TokenService.GetTokenAsync();
+            if (!string.IsNullOrEmpty(_currentToken))
+            {
+                await StartListeningAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+            Snackbar.Add("Bir hata oluştu: " + ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" || e.Key == "NumpadEnter")
+        {
+            if (!string.IsNullOrWhiteSpace(_newToken))
+            {
+                await SaveTokenAsync();
+            }
+        }
+    }
+
+    private async Task SaveTokenAsync()
+    {
+        try
+        {
+            _errorMessage = string.Empty;
+
+            if (!TokenService.ValidateToken(_newToken))
+            {
+                _errorMessage = "Lütfen yanlızca InsurUp'tan aldığınız kodu giriniz.";
+                return;
+            }
+
+            await TokenService.SaveTokenAsync(_newToken);
+            _currentToken = _newToken;
+            _newToken = string.Empty;
+
+            await StartListeningAsync();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private void HandleDeliveryFailed(string message) => InvokeAsync(() =>
+    {
+        _deliveryError = message;
+        Snackbar.Add(message, Severity.Error);
+        StateHasChanged();
+    });
+
+    public void Dispose() => SmsProcessingService.OnDeliveryFailed -= HandleDeliveryFailed;
+
+    private async Task StartListeningAsync()
+    {
+        try
+        {
+            _deliveryError = null;
+            await SmsProcessingService.StartProcessingAsync();
+            _isListening = true;
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+            Snackbar.Add("SMS dinleme başlatılamadı: " + ex.Message, Severity.Error);
+            throw;
+        }
+    }
+
+    private async Task StopListeningAsync()
+    {
+        try
+        {
+            await SmsProcessingService.StopProcessingAsync();
+            _isListening = false;
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task RemoveTokenAsync()
+    {
+        try
+        {
+            await StopListeningAsync();
+            await TokenService.ClearTokenAsync();
+            _currentToken = null;
+            _isListening = false;
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task ScanQRCodeAsync()
+    {
+        try
+        {
+            var status = await Permissions.CheckStatusAsync<Permissions.Camera>();
+            if (status != PermissionStatus.Granted)
+            {
+                status = await Permissions.RequestAsync<Permissions.Camera>();
+                if (status != PermissionStatus.Granted)
+                {
+                    _errorMessage = "Kamera izni verilmedi";
+                    return;
+                }
+            }
+
+            var options = new MobileBarcodeScanningOptions
+                {
+                    PossibleFormats = new List<BarcodeFormat> { BarcodeFormat.QR_CODE },
+                    TryHarder = true
+                };
+
+            var scanner = new MobileBarcodeScanner
+                {
+                    TopText = "QR Kodu kameraya yaklaştırın",
+                    BottomText = "Tarama otomatik olarak yapılacaktır"
+                };
+
+            var result = await scanner.Scan(options);
+
+            if (result != null)
+            {
+                _newToken = result.Text;
+                await SaveTokenAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = "QR kod okunamadı: " + ex.Message;
+            Snackbar.Add(_errorMessage, Severity.Error);
+        }
+    }
+}

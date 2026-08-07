@@ -1,0 +1,32 @@
+﻿.main-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: white;
+    overflow-y: auto;
+}
+
+.content-wrapper {
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    padding: 0;
+}
+
+.loading-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+}
+
+::deep .mud-button {
+    text-transform: none;
+    font-weight: 500;
+}
+
+::deep .mud-alert {
+    border-radius: 8px;
+}
